@@ -29,14 +29,15 @@ client.on(Events.GuildMemberAdd, async (member) => {
         const faqMention = FAQ_CHANNEL_ID ? `<#${FAQ_CHANNEL_ID}>` : '#faq';
 
         await channel.send({
-            content: `🌸 ¡Bienvenido/a ${member}!`,
             embeds: [
                 {
                     description:
+                        `🌸 ¡Bienvenido/a ${member}!\n\n` +
                         'Rastreador de archimonstruos en tiempo real para Dofus Touch, con cobertura del **100%** de la misión del Ocre.\n\n' +
                         '🌐 https://www.bnotifier.es\n\n' +
                         `Revisa ${faqMention} para ver cómo funciona todo, precios y cómo empezar.`,
                     color: 16723335,
+                    image: { url: 'https://www.bnotifier.es/og-image.PNG' },
                     footer: { text: 'DakuBot · Dofus Touch Archimonster Tracker' }
                 }
             ]
