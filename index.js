@@ -32,7 +32,7 @@ client.on(Events.GuildMemberAdd, async (member) => {
             embeds: [
                 {
                     description:
-                        `🌸 ¡Bienvenido/a ${member}!\n\n` +
+                        `# 🌸 ¡Bienvenido/a ${member}!\n\n` +
                         'Rastreador de archimonstruos en tiempo real para Dofus Touch, con cobertura del **100%** de la misión del Ocre.\n\n' +
                         '🌐 https://www.bnotifier.es\n\n' +
                         `Revisa ${faqMention} para ver cómo funciona todo, precios y cómo empezar.`,
