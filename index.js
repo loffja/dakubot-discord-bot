@@ -54,12 +54,12 @@ client.on(Events.GuildMemberAdd, async (member) => {
         console.error('Error dando la bienvenida:', error);
     }
     // Al instante, no esperamos a los 5 minutos.
-    updateMemberCountChannel();
+    debouncedUpdateMembers();
 });
 
 // Al instante también cuando alguien se va.
 client.on(Events.GuildMemberRemove, () => {
-    updateMemberCountChannel();
+    debouncedUpdateMembers();
 });
 
 client.on(Events.Error, (error) => {
@@ -71,6 +71,25 @@ client.on(Events.Error, (error) => {
 // cambió nada — así nos mantenemos muy por debajo del límite de Discord
 // (2 renombres cada 10 min por canal) en vez de rozarlo constantemente.
 const lastNames = {};
+
+// Agrupa avisos que llegan muy seguidos (por ejemplo, varias licencias
+// creadas/borradas en pocos segundos durante una prueba) en una sola
+// actualización real, con el dato más reciente — en vez de disparar una
+// consulta y un renombrado por cada aviso individual, que puede agotar
+// el límite de renombrados de Discord (2 cada 10 min por canal) sin
+// necesidad.
+const DEBOUNCE_MS = 3000;
+const debounceTimers = {};
+
+function debounced(key, fn) {
+    return () => {
+        if (debounceTimers[key]) clearTimeout(debounceTimers[key]);
+        debounceTimers[key] = setTimeout(() => {
+            delete debounceTimers[key];
+            fn();
+        }, DEBOUNCE_MS);
+    };
+}
 
 async function renameIfChanged(channelId, newName) {
     if (!channelId) return;
@@ -136,6 +155,10 @@ async function updateActiveLicensesChannel() {
     }
 }
 
+const debouncedUpdateStatus = debounced('status', updateStatusChannel);
+const debouncedUpdateMembers = debounced('members', updateMemberCountChannel);
+const debouncedUpdateActive = debounced('active', updateActiveLicensesChannel);
+
 function startStatsLoop() {
     async function tick() {
         await updateStatusChannel();
@@ -173,9 +196,10 @@ app.post('/notify', async (req, res) => {
     console.log(`[/notify] Aviso recibido, type = "${type}"`);
     res.status(200).json({ received: true });
 
-    // Responder rápido y actualizar después, para no hacer esperar a quien llama.
-    if (type === 'settings' || !type) await updateStatusChannel();
-    if (type === 'licencias' || !type) await updateActiveLicensesChannel();
+    // Responder rápido y actualizar después, agrupando avisos que lleguen
+    // muy seguidos en una sola actualización real (ver "debounced" arriba).
+    if (type === 'settings' || !type) debouncedUpdateStatus();
+    if (type === 'licencias' || !type) debouncedUpdateActive();
 });
 
 const PORT = process.env.PORT || 10000;
