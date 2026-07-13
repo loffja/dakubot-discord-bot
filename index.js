@@ -8,8 +8,9 @@ const MEMBERCOUNT_CHANNEL_ID = process.env.MEMBERCOUNT_CHANNEL_ID;
 const ACTIVE_CHANNEL_ID = process.env.ACTIVE_CHANNEL_ID;
 const ADMIN_API_KEY = process.env.ADMIN_API_KEY;
 const GUILD_ID = process.env.GUILD_ID;
+const NOTIFY_SECRET = process.env.NOTIFY_SECRET;
 
-const STATS_INTERVAL_MS = 5 * 60 * 1000; // cada 5 minutos
+const STATS_INTERVAL_MS = 5 * 60 * 1000; // respaldo, por si algún aviso instantáneo falla
 
 if (!process.env.DISCORD_BOT_TOKEN || !WELCOME_CHANNEL_ID) {
     console.error('Faltan DISCORD_BOT_TOKEN o WELCOME_CHANNEL_ID. El bot no puede arrancar sin ellos.');
@@ -32,27 +33,33 @@ client.once(Events.ClientReady, (c) => {
 client.on(Events.GuildMemberAdd, async (member) => {
     try {
         const channel = await member.guild.channels.fetch(WELCOME_CHANNEL_ID);
-        if (!channel || !channel.isTextBased()) return;
-
-        const faqMention = FAQ_CHANNEL_ID ? `<#${FAQ_CHANNEL_ID}>` : '#faq';
-
-        await channel.send({
-            embeds: [
-                {
-                    description:
-                        `# 🌸 ¡Bienvenido/a ${member}!\n\n` +
-                        'Rastreador de archimonstruos en tiempo real para Dofus Touch, con cobertura del **100%** de la misión del Ocre.\n\n' +
-                        '🌐 https://www.bnotifier.es\n\n' +
-                        `Revisa 📖 ${faqMention} para ver cómo funciona todo, precios y cómo empezar.`,
-                    color: 16723335,
-                    image: { url: 'https://www.bnotifier.es/og-image.PNG' },
-                    footer: { text: 'DakuBot · Dofus Touch Archimonster Tracker' }
-                }
-            ]
-        });
+        if (channel && channel.isTextBased()) {
+            const faqMention = FAQ_CHANNEL_ID ? `<#${FAQ_CHANNEL_ID}>` : '#faq';
+            await channel.send({
+                embeds: [
+                    {
+                        description:
+                            `# 🌸 ¡Bienvenido/a ${member}!\n\n` +
+                            'Rastreador de archimonstruos en tiempo real para Dofus Touch, con cobertura del **100%** de la misión del Ocre.\n\n' +
+                            '🌐 https://www.bnotifier.es\n\n' +
+                            `Revisa 📖 ${faqMention} para ver cómo funciona todo, precios y cómo empezar.`,
+                        color: 16723335,
+                        image: { url: 'https://www.bnotifier.es/og-image.PNG' },
+                        footer: { text: 'DakuBot · Dofus Touch Archimonster Tracker' }
+                    }
+                ]
+            });
+        }
     } catch (error) {
         console.error('Error dando la bienvenida:', error);
     }
+    // Al instante, no esperamos a los 5 minutos.
+    updateMemberCountChannel();
+});
+
+// Al instante también cuando alguien se va.
+client.on(Events.GuildMemberRemove, () => {
+    updateMemberCountChannel();
 });
 
 client.on(Events.Error, (error) => {
@@ -111,7 +118,7 @@ async function updateActiveLicensesChannel() {
     try {
         const res = await fetch('https://api.bnotifier.es/stats');
         const data = await res.json();
-        const name = `🌬️ Licences: ${data.licenciasActivas ?? 0}`;
+        const name = `🎮 Active: ${data.licenciasActivas ?? 0}`;
         await renameIfChanged(ACTIVE_CHANNEL_ID, name);
     } catch (error) {
         console.error('Error consultando /stats:', error.message);
@@ -130,15 +137,32 @@ function startStatsLoop() {
 
 client.login(process.env.DISCORD_BOT_TOKEN);
 
-// Servidor mínimo, solo para que Render lo trate como "Web Service" y no
-// mate el proceso. También sirve para que un ping externo (CronAlert, etc.)
-// lo mantenga despierto.
+// --- Servidor HTTP: healthcheck + aviso instantáneo desde el backend ----
 const app = express();
+app.use(express.json());
+
 app.get('/', (req, res) => {
     res.json({
         status: 'ok',
         bot: client.user ? client.user.tag : 'conectando…'
     });
+});
+
+// Tu API llama a esto cada vez que cambia algo relevante (el interruptor
+// de emergencia, o una licencia creada/extendida/borrada), para que el
+// canal correspondiente se actualice al instante en vez de esperar hasta
+// 5 minutos al siguiente chequeo periódico.
+app.post('/notify', express.json(), async (req, res) => {
+    if (!NOTIFY_SECRET || req.headers['x-notify-secret'] !== NOTIFY_SECRET) {
+        return res.status(401).json({ message: 'No autorizado.' });
+    }
+
+    const { type } = req.body || {};
+    res.status(200).json({ received: true });
+
+    // Responder rápido y actualizar después, para no hacer esperar a quien llama.
+    if (type === 'settings' || !type) await updateStatusChannel();
+    if (type === 'licencias' || !type) await updateActiveLicensesChannel();
 });
 
 const PORT = process.env.PORT || 10000;
