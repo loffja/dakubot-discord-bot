@@ -118,7 +118,7 @@ async function updateActiveLicensesChannel() {
     try {
         const res = await fetch('https://api.bnotifier.es/stats');
         const data = await res.json();
-        const name = `🎮 Active: ${data.licenciasActivas ?? 0}`;
+        const name = `☄️ Licenses: ${data.licenciasActivas ?? 0}`;
         await renameIfChanged(ACTIVE_CHANNEL_ID, name);
     } catch (error) {
         console.error('Error consultando /stats:', error.message);
