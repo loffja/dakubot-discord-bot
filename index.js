@@ -152,7 +152,7 @@ app.get('/', (req, res) => {
 // de emergencia, o una licencia creada/extendida/borrada), para que el
 // canal correspondiente se actualice al instante en vez de esperar hasta
 // 5 minutos al siguiente chequeo periódico.
-app.post('/notify', express.json(), async (req, res) => {
+app.post('/notify', async (req, res) => {
     if (!NOTIFY_SECRET || req.headers['x-notify-secret'] !== NOTIFY_SECRET) {
         return res.status(401).json({ message: 'No autorizado.' });
     }
