@@ -3,6 +3,13 @@ import express from 'express';
 
 const WELCOME_CHANNEL_ID = process.env.WELCOME_CHANNEL_ID;
 const FAQ_CHANNEL_ID = process.env.FAQ_CHANNEL_ID;
+const STATUS_CHANNEL_ID = process.env.STATUS_CHANNEL_ID;
+const MEMBERCOUNT_CHANNEL_ID = process.env.MEMBERCOUNT_CHANNEL_ID;
+const ACTIVE_CHANNEL_ID = process.env.ACTIVE_CHANNEL_ID;
+const ADMIN_API_KEY = process.env.ADMIN_API_KEY;
+const GUILD_ID = process.env.GUILD_ID;
+
+const STATS_INTERVAL_MS = 5 * 60 * 1000; // cada 5 minutos
 
 if (!process.env.DISCORD_BOT_TOKEN || !WELCOME_CHANNEL_ID) {
     console.error('Faltan DISCORD_BOT_TOKEN o WELCOME_CHANNEL_ID. El bot no puede arrancar sin ellos.');
@@ -18,6 +25,7 @@ const client = new Client({
 
 client.once(Events.ClientReady, (c) => {
     console.log(`Conectado como ${c.user.tag}`);
+    startStatsLoop();
 });
 
 // Se dispara cada vez que alguien entra al servidor.
@@ -35,7 +43,7 @@ client.on(Events.GuildMemberAdd, async (member) => {
                         `# 🌸 ¡Bienvenido/a ${member}!\n\n` +
                         'Rastreador de archimonstruos en tiempo real para Dofus Touch, con cobertura del **100%** de la misión del Ocre.\n\n' +
                         '🌐 https://www.bnotifier.es\n\n' +
-                        `Revisa ${faqMention} para ver cómo funciona todo, precios y cómo empezar.`,
+                        `Revisa 📖 ${faqMention} para ver cómo funciona todo, precios y cómo empezar.`,
                     color: 16723335,
                     image: { url: 'https://www.bnotifier.es/og-image.PNG' },
                     footer: { text: 'DakuBot · Dofus Touch Archimonster Tracker' }
@@ -50,6 +58,75 @@ client.on(Events.GuildMemberAdd, async (member) => {
 client.on(Events.Error, (error) => {
     console.error('Error del cliente de Discord:', error);
 });
+
+// --- Actualización de canales de estadísticas ---------------------------
+// Guarda el último nombre puesto en cada canal para NO renombrar si no
+// cambió nada — así nos mantenemos muy por debajo del límite de Discord
+// (2 renombres cada 10 min por canal) en vez de rozarlo constantemente.
+const lastNames = {};
+
+async function renameIfChanged(channelId, newName) {
+    if (!channelId || lastNames[channelId] === newName) return;
+    try {
+        const channel = await client.channels.fetch(channelId);
+        if (!channel) return;
+        await channel.setName(newName);
+        lastNames[channelId] = newName;
+        console.log(`Canal ${channelId} renombrado a: ${newName}`);
+    } catch (error) {
+        console.error(`Error renombrando canal ${channelId}:`, error.message);
+    }
+}
+
+async function updateStatusChannel() {
+    if (!STATUS_CHANNEL_ID || !ADMIN_API_KEY) return;
+    try {
+        const res = await fetch('https://api.bnotifier.es/admin/settings', {
+            headers: { 'x-admin-key': ADMIN_API_KEY }
+        });
+        const data = await res.json();
+        const name = data.validateEnabled ? '🟢 Status: Online' : '🔴 Status: Offline';
+        await renameIfChanged(STATUS_CHANNEL_ID, name);
+    } catch (error) {
+        console.error('Error consultando /admin/settings:', error.message);
+    }
+}
+
+async function updateMemberCountChannel() {
+    if (!MEMBERCOUNT_CHANNEL_ID || !GUILD_ID) return;
+    try {
+        const res = await fetch(`https://discord.com/api/v10/guilds/${GUILD_ID}?with_counts=true`, {
+            headers: { Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}` }
+        });
+        const data = await res.json();
+        const name = `👥 Members: ${data.approximate_member_count ?? 0}`;
+        await renameIfChanged(MEMBERCOUNT_CHANNEL_ID, name);
+    } catch (error) {
+        console.error('Error consultando miembros del servidor:', error.message);
+    }
+}
+
+async function updateActiveLicensesChannel() {
+    if (!ACTIVE_CHANNEL_ID) return;
+    try {
+        const res = await fetch('https://api.bnotifier.es/stats');
+        const data = await res.json();
+        const name = `🌬️ Licences: ${data.licenciasActivas ?? 0}`;
+        await renameIfChanged(ACTIVE_CHANNEL_ID, name);
+    } catch (error) {
+        console.error('Error consultando /stats:', error.message);
+    }
+}
+
+function startStatsLoop() {
+    async function tick() {
+        await updateStatusChannel();
+        await updateMemberCountChannel();
+        await updateActiveLicensesChannel();
+    }
+    tick(); // primera ejecución inmediata al arrancar
+    setInterval(tick, STATS_INTERVAL_MS);
+}
 
 client.login(process.env.DISCORD_BOT_TOKEN);
 
