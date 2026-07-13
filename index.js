@@ -116,4 +116,69 @@ async function updateMemberCountChannel() {
         const name = `👥 Members: ${data.approximate_member_count ?? 0}`;
         await renameIfChanged(MEMBERCOUNT_CHANNEL_ID, name);
     } catch (error) {
-        console.error('Error
+        console.error('Error consultando miembros del servidor:', error.message);
+    }
+}
+
+async function updateActiveLicensesChannel() {
+    if (!ACTIVE_CHANNEL_ID) {
+        console.log('[updateActiveLicensesChannel] Omitido: falta ACTIVE_CHANNEL_ID.');
+        return;
+    }
+    try {
+        const res = await fetch('https://api.bnotifier.es/stats');
+        const data = await res.json();
+        console.log(`[updateActiveLicensesChannel] /stats devolvió licenciasActivas = ${data.licenciasActivas}`);
+        const name = `🔑 Licenses: ${data.licenciasActivas ?? 0}`;
+        await renameIfChanged(ACTIVE_CHANNEL_ID, name);
+    } catch (error) {
+        console.error('Error consultando /stats:', error.message);
+    }
+}
+
+function startStatsLoop() {
+    async function tick() {
+        await updateStatusChannel();
+        await updateMemberCountChannel();
+        await updateActiveLicensesChannel();
+    }
+    tick(); // primera ejecución inmediata al arrancar
+    setInterval(tick, STATS_INTERVAL_MS);
+}
+
+client.login(process.env.DISCORD_BOT_TOKEN);
+
+// --- Servidor HTTP: healthcheck + aviso instantáneo desde el backend ----
+const app = express();
+app.use(express.json());
+
+app.get('/', (req, res) => {
+    res.json({
+        status: 'ok',
+        bot: client.user ? client.user.tag : 'conectando…'
+    });
+});
+
+// Tu API llama a esto cada vez que cambia algo relevante (el interruptor
+// de emergencia, o una licencia creada/extendida/borrada), para que el
+// canal correspondiente se actualice al instante en vez de esperar hasta
+// 5 minutos al siguiente chequeo periódico.
+app.post('/notify', async (req, res) => {
+    if (!NOTIFY_SECRET || req.headers['x-notify-secret'] !== NOTIFY_SECRET) {
+        console.log('[/notify] Rechazado: clave incorrecta o ausente.');
+        return res.status(401).json({ message: 'No autorizado.' });
+    }
+
+    const { type } = req.body || {};
+    console.log(`[/notify] Aviso recibido, type = "${type}"`);
+    res.status(200).json({ received: true });
+
+    // Responder rápido y actualizar después, para no hacer esperar a quien llama.
+    if (type === 'settings' || !type) await updateStatusChannel();
+    if (type === 'licencias' || !type) await updateActiveLicensesChannel();
+});
+
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => {
+    console.log(`Healthcheck escuchando en el puerto ${PORT}`);
+});
