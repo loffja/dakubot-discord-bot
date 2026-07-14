@@ -93,14 +93,15 @@ function debounced(key, fn) {
 
 async function renameIfChanged(channelId, newName) {
     if (!channelId) return;
-    if (lastNames[channelId] === newName) {
-        console.log(`[renameIfChanged] Sin cambios para ${channelId} (ya es "${newName}")`);
-        return;
-    }
     try {
-        const channel = await client.channels.fetch(channelId);
+        const channel = await client.channels.fetch(channelId, { force: true });
         if (!channel) {
             console.log(`[renameIfChanged] No se encontró el canal ${channelId}`);
+            return;
+        }
+        if (channel.name === newName) {
+            lastNames[channelId] = newName;
+            console.log(`[renameIfChanged] Sin cambios para ${channelId} (ya es "${newName}" de verdad en Discord)`);
             return;
         }
         await channel.setName(newName);
