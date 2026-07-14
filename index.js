@@ -91,25 +91,52 @@ function debounced(key, fn) {
     };
 }
 
+// Si ya hay una petición de renombrado en curso/en cola para un canal,
+// las siguientes llamadas NO disparan otra petición aparte (eso es lo que
+// generaba renombrados con datos viejos, atascados en la cola de Discord).
+// Solo actualizan cuál es el valor MÁS RECIENTE deseado; cuando la
+// petición en curso termine, se revisa si el valor deseado cambió
+// mientras tanto y, si es así, se manda una última actualización con el
+// dato de verdad más reciente — nunca con uno atrasado.
+const pendingRename = {};
+const desiredName = {};
+
 async function renameIfChanged(channelId, newName) {
     if (!channelId) return;
-    try {
-        const channel = await client.channels.fetch(channelId, { force: true });
-        if (!channel) {
-            console.log(`[renameIfChanged] No se encontró el canal ${channelId}`);
-            return;
-        }
-        if (channel.name === newName) {
-            lastNames[channelId] = newName;
-            console.log(`[renameIfChanged] Sin cambios para ${channelId} (ya es "${newName}" de verdad en Discord)`);
-            return;
-        }
-        await channel.setName(newName);
-        lastNames[channelId] = newName;
-        console.log(`Canal ${channelId} renombrado a: ${newName}`);
-    } catch (error) {
-        console.error(`Error renombrando canal ${channelId}:`, error.message);
+    desiredName[channelId] = newName;
+
+    if (pendingRename[channelId]) {
+        return; // ya hay alguien encargándose de este canal
     }
+
+    pendingRename[channelId] = (async () => {
+        try {
+            for (;;) {
+                const target = desiredName[channelId];
+                const channel = await client.channels.fetch(channelId, { force: true });
+                if (!channel) {
+                    console.log(`[renameIfChanged] No se encontró el canal ${channelId}`);
+                    break;
+                }
+                if (channel.name === target) {
+                    lastNames[channelId] = target;
+                    console.log(`[renameIfChanged] Sin cambios para ${channelId} (ya es "${target}" de verdad en Discord)`);
+                } else {
+                    await channel.setName(target);
+                    lastNames[channelId] = target;
+                    console.log(`Canal ${channelId} renombrado a: ${target}`);
+                }
+                // Si mientras hacíamos esto llegó un valor más nuevo, lo aplicamos también.
+                if (desiredName[channelId] === target) break;
+            }
+        } catch (error) {
+            console.error(`Error renombrando canal ${channelId}:`, error.message);
+        } finally {
+            delete pendingRename[channelId];
+        }
+    })();
+
+    await pendingRename[channelId];
 }
 
 async function updateStatusChannel() {
